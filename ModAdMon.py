@@ -10,7 +10,7 @@ from fenics import NonlinearVariationalProblem, NonlinearVariationalSolver
 def Value_Coor_dof(phi_u_v_p, v_project_phi, comm):
     """Return value of the solution at the degrees of freedom and corresponding coordinates."""
     V = v_project_phi
-    phi_answer, u_answer, v_answer, p_answer = split(phi_u_v_p)
+    phi_answer, u_answer, v_next, v_tent, p_answer = split(phi_u_v_p)
     coordinates_of_all = V.tabulate_dof_coordinates()
     grad_Phi = project(fe.sqrt(fe.dot(grad(phi_answer), grad(phi_answer))), V)
     phi_value_on_dof = grad_Phi.vector().get_local()

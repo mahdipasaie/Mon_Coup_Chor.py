@@ -103,7 +103,7 @@ physical_parameters_dict = {
     "viscosity_solid": lambda mu_fluid: mu_fluid *100 ,
     "viscosity_liquid": lambda mu_fluid: mu_fluid,
     "lid_vel_x": 0.0, 
-    "lid_vel_y": -0.1,
+    "lid_vel_y": -0.01,
 }
 
 
@@ -169,7 +169,7 @@ mesh = refine_mesh_local( coarse_mesh , initial_seed_radius , seed_center , max_
 
 file_N = fe.XDMFFile("Mon__Settel.xdmf" ) 
 
-variable_names = [ "phi", "U", "vel", "press" ] 
+variable_names = [ "phi", "U", "vel", "tent", "press" ] 
 
 
 def write_simulation_data(Sol_Func, time, file, variable_names, viscosity ):

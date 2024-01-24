@@ -35,21 +35,24 @@ class InitialConditions(fe.UserExpression):
         values[0] = -np.tanh((fe.sqrt(dist)-self.rad)/fe.sqrt(2.0))
         values[1] = self.u_initial
         # NS : 
-        values[2] = 0.0     # x component 
-        values[3] = 0.0     # y component
-        values[4] = 0.0     # pressure
+        values[2] = 0.0     # x component v next 
+        values[3] = 0.0     # y component v next 
+        values[4] = 0.0     # x component v tentetive 
+        values[5] = 0.0     # y component v tentative 
+        values[6] = 0.0     # pressure
 
 
     def value_shape(self):
-        return (5,)
+        return (7,)
 
 
 def define_variables(mesh):
     
     P1 = fe.FiniteElement("Lagrange", mesh.ufl_cell(), 1)  # Order parameter Phi
     P2 = fe.FiniteElement("Lagrange", mesh.ufl_cell(), 1)  # U: dimensionless solute supersaturation
-    P3 = fe.VectorElement("Lagrange", mesh.ufl_cell(), 2)  # Velocity
-    P4 = fe.FiniteElement("Lagrange", mesh.ufl_cell(), 1)  # Pressure 
+    P3 = fe.VectorElement("Lagrange", mesh.ufl_cell(), 2)  # Velocity next 
+    P4 = fe.VectorElement("Lagrange", mesh.ufl_cell(), 2)  # Velocity tentative
+    P5 = fe.FiniteElement("Lagrange", mesh.ufl_cell(), 1)  # Pressure 
 
     viscosity_func_space = FunctionSpace(mesh, P1)
     viscosity_func = Function(viscosity_func_space)
@@ -58,20 +61,20 @@ def define_variables(mesh):
     coeff2_bouyancy_func = Function(viscosity_func_space)
 
 
-    element = MixedElement( [P1, P2, P3, P4] )
+    element = MixedElement( [P1, P2, P3, P4, P5] )
 
     function_space = FunctionSpace( mesh, element )
 
     Test_Functions = TestFunctions(function_space)
-    v_test_phi, q_test_u, w_test_v, z_test_p = Test_Functions
+    test_1, test_2, test_3, test_4, test_5 = Test_Functions
 
 
 
     phi_u_v_p = Function(function_space)  
     phi_u_v_p_0 = Function(function_space)  
 
-    phi_answer, u_answer, v_answer, p_answer = split(phi_u_v_p)  # Current solution
-    phi_prev, u_prev, v_prev, p_prev = split(phi_u_v_p_0)  # Previous solution
+    phi_answer, u_answer, v_next, v_tent, p_answer = split(phi_u_v_p)  # Current solution
+    phi_prev, u_prev, v_prev, v_tent_prev,  p_prev = split(phi_u_v_p_0)  # Previous solution
 
 
     num_subs = function_space.num_sub_spaces()
@@ -84,16 +87,15 @@ def define_variables(mesh):
 
     return {
         'phi_answer': phi_answer, 'u_answer': u_answer,
-        'v_answer': v_answer, 'p_answer' : p_answer, 
+        'p_answer' : p_answer, "v_next": v_next,  "v_tent": v_tent, "v_tent_prev": v_tent_prev,
         "phi_prev": phi_prev, "u_prev" : u_prev,
         "v_prev": v_prev, "p_prev": p_prev,
         "spaces": spaces, "maps": maps,
         "phi_u_v_p": phi_u_v_p, "phi_u_v_p_0": phi_u_v_p_0, 
-        "v_test_phi": v_test_phi, "q_test_u": q_test_u, 
-        "w_test_v": w_test_v, "z_test_p": z_test_p, 
         "function_space": function_space, "Test_Functions": Test_Functions, 
          "viscosity_func": viscosity_func, 
-          "coeff1_bouyancy_func": coeff1_bouyancy_func, "coeff2_bouyancy_func": coeff2_bouyancy_func
+          "coeff1_bouyancy_func": coeff1_bouyancy_func, "coeff2_bouyancy_func": coeff2_bouyancy_func, 
+          "test_1": test_1, "test_2": test_2, "test_3": test_3, "test_4": test_4, "test_5": test_5
             } 
 
 
@@ -114,8 +116,8 @@ def set_or_update_initial_conditions( phi_u_v_p_0, seed_center, u_initial ,initi
 
 
 def update_viscosity( phi_u_v_p_0 , viscosity_func, viscosity_solid, viscosity_liquid ): 
- 
-    phi_prev, u_prev, v_prev, p_prev = phi_u_v_p_0.split( deepcopy = True )
+  
+    phi_prev, u_prev, v_prev, v_tent_prev,  p_prev  = phi_u_v_p_0.split( deepcopy = True )
 
     phi_values = phi_prev.vector().get_local()
     viscosity_values = viscosity_func.vector().get_local()
@@ -137,7 +139,7 @@ def update_viscosity( phi_u_v_p_0 , viscosity_func, viscosity_solid, viscosity_l
 def bouyancy_terms_update( phi_u_v_p_0, coeff1_bouyancy_func ,coeff2_bouyancy_func, rho1 , rho2, c_initial, gravity, alpha_c, omk, opk ): 
 
 
-    phi_prev, u_prev, v_prev, p_prev = phi_u_v_p_0.split( deepcopy = True )
+    phi_prev, u_prev, v_prev, v_tent_prev,  p_prev  = phi_u_v_p_0.split( deepcopy = True )
 
     phi_values = phi_prev.vector().get_local()
     u_values = u_prev.vector().get_local()
@@ -213,7 +215,9 @@ def epsilon(u ):
 def sigma(u, p, mu1, rho1 ):
     # chnged due to kinematic viscosity
 
-    return 2 * mu1 * epsilon(u) - p * (1/rho1)  * fe.Identity(len(u))
+    # return 2 * mu1 * epsilon(u) - p * (1/rho1)  * fe.Identity(len(u))
+
+    return 2 * mu1 * epsilon(u) - p  * fe.Identity(len(u))
 
 
 def calculate_equation_1(
@@ -282,28 +286,44 @@ def calculate_equation_2(u_answer, u_prev, phi_answer, phi_prev, q_test, dt, D, 
     return eq2
 
 
-def F1(v_answer, q_test, dt):
+def F1(v_tent, v_prev, p_prev, test_3, Kiviscos, rho1, dt, Coeff1_Bou_NS, Coeff2_Bou_NS ):
 
-    F1 = fe.inner(fe.div(v_answer), q_test) * dt * fe.dx
+    # Equation 1 : for finding u_tent
+    F1 = ( 
+        fe.inner( ( v_tent - v_prev )/dt , test_3  )  +
+        fe.inner( fe.dot( v_prev , fe.grad(v_prev) ) , test_3 )   +  
+        # fe.inner( fe.grad(u_tent) , fe.grad(v_test) ) * dt 
+        fe.inner( sigma(v_tent, p_prev, Kiviscos, rho1) , epsilon(test_3) ) * dt 
+        - fe.inner( Coeff1_Bou_NS , test_3[1] ) 
+        - fe.inner( Coeff2_Bou_NS , test_3[1] ) 
+        
+        )* fe.dx
 
     return F1
 
+def F2(v_tent, p_next, p_prev, test_5, dt ):
 
-def F2(v_answer, v_prev, p_answer, v_test, dt, rho1, mu1, Coeff1_Bou_NS, Coeff2_Bou_NS ):
+    #Equation 2 : for finding pressure
 
-    F2 = (
-        fe.inner((v_answer - v_prev) / dt, v_test) * fe.dx
-        + fe.inner(fe.dot(v_answer, fe.grad(v_answer)), v_test) * fe.dx
-        # + (1/rho1) * fe.inner(sigma(u_answer, p_answer, mu1), epsilon(v_test)) * fe.dx
-        + fe.inner(sigma(v_answer, p_answer, mu1, rho1), epsilon(v_test)) * fe.dx
-        - fe.inner( Coeff1_Bou_NS , v_test[1] ) * fe.dx
-        - fe.inner( Coeff2_Bou_NS , v_test[1] ) * fe.dx
-
-
+    F2 = ( 
+        fe.inner( fe.grad( p_next ) , fe.grad( test_5 ) ) * fe.dx -
+        fe.inner( fe.grad( p_prev ) , fe.grad( test_5) )  * fe.dx +
+        fe.inner( 1/dt * fe.div( v_tent ) , test_5 ) * fe.dx
     )
+
+
+    
 
     return F2
 
+def F3(v_next, v_tent, p_next, p_prev, test_4, dt ):
+
+    F3 = ( 
+        fe.inner( (v_next - v_tent), test_4 ) +
+        fe.inner( fe.grad( p_next - p_prev ), test_4 ) * dt
+    ) * fe.dx
+
+    return F3
 
 
 ############################ Boundary Condition Section #################
@@ -345,15 +365,22 @@ def Define_Boundary_Condition_NS( function_space, Domain, mesh, lid_vel_x, lid_v
     bc_u_bottom = DirichletBC(W.sub(2), Constant((0, 0)), bottom_boundary)
     bc_u_top = DirichletBC(W.sub(2).sub(1), Constant(lid_vel_y), top_boundary)
     bc_u_top_x = DirichletBC(W.sub(2).sub(0), Constant(lid_vel_x), top_boundary)
-    bc_p_bottom = DirichletBC(W.sub(3), Constant(0.0), bottom_boundary)
 
-    zero_pressure_point = fe.Point( (X0),  (Y1) )
-    bc_p_zero = DirichletBC(W.sub(3), Constant(0.0), lambda x,
+    bc_u_left_tent = DirichletBC(W.sub(3), Constant((0, 0)), left_boundary)
+    bc_u_right_tent = DirichletBC(W.sub(3), Constant((0, 0)), right_boundary)
+    bc_u_bottom_tent = DirichletBC(W.sub(3), Constant((0, 0)), bottom_boundary)
+    bc_u_top_tent = DirichletBC(W.sub(3).sub(1), Constant(lid_vel_y), top_boundary)
+    bc_u_top_x_tent = DirichletBC(W.sub(3).sub(0), Constant(lid_vel_x), top_boundary)
+
+    bc_p_bottom = DirichletBC(W.sub(4), Constant(0.0), bottom_boundary)
+
+    zero_pressure_point = fe.Point( (X0)/2,  (Y1)/2 )
+    bc_p_zero = DirichletBC(W.sub(4), Constant(0.0), lambda x,
     on_boundary: near(x[0], zero_pressure_point.x()) and near(x[1], zero_pressure_point.y()), method="pointwise")
 
 
     # bc_all = [bc_u_left, bc_u_right, bc_u_bottom, bc_u_top, bc_p_zero, bc_u_top_x]
-    bc_all = [bc_u_left, bc_u_right, bc_u_top, bc_u_top_x,bc_p_bottom ]
+    bc_all = [bc_u_left, bc_u_right, bc_u_top, bc_u_top_x,bc_p_bottom, bc_u_left_tent, bc_u_right_tent, bc_u_bottom_tent, bc_u_top_tent, bc_u_top_x_tent   ]
 
 
     global_bc = bc_all
@@ -377,9 +404,9 @@ def total_form_definer( variables_dict, physical_parameters_dict, phi_u_v_p_0_Ol
     coeff2_bouyancy_func = variables_dict["coeff2_bouyancy_func"]
 
 
-    phi_answer, u_answer, v_answer, p_answer = split(phi_u_v_p)
-    phi_prev, u_prev, v_prev, p_prev = split(phi_u_v_p_0)
-    v_test_phi, q_test_u, w_test_v, z_test_p = Test_Functions
+    phi_answer, u_answer, v_next, v_tent, p_answer = split(phi_u_v_p)
+    phi_prev, u_prev, v_prev, v_tent_prev,  p_prev = split(phi_u_v_p_0) 
+    test_1, test_2, test_3, test_4, test_5 = Test_Functions
 
     # Extracting parameters from the dictionary
     dy = physical_parameters_dict["dy"]
@@ -432,13 +459,14 @@ def total_form_definer( variables_dict, physical_parameters_dict, phi_u_v_p_0_Ol
     mgphi = dependent_variables_dict["mgphi"]
     W_n = dependent_variables_dict["W_n"]
 
-    F1_form = calculate_equation_1( phi_answer, phi_prev, u_answer, dt, v_test_phi, D_w_n_x, D_w_n_y, mgphi, W_n, k_eq, w0, lamda, v_answer, tau_0 )
-    F2_form = calculate_equation_2( u_answer, u_prev, phi_answer, phi_prev, q_test_u, dt, D, opk, omk, at, v_answer )
-    F3_form = F1(v_answer, z_test_p, dt)
-    F4_form = F2(v_answer, v_prev, p_prev, w_test_v, dt, rho1, viscosity_func, coeff1_bouyancy_func, coeff2_bouyancy_func )
+    F1_form = calculate_equation_1( phi_answer, phi_prev, u_answer, dt, test_1, D_w_n_x, D_w_n_y, mgphi, W_n, k_eq, w0, lamda, v_next, tau_0 )
+    F2_form = calculate_equation_2( u_answer, u_prev, phi_answer, phi_prev, test_2, dt, D, opk, omk, at, v_next )
+    F3_form = F1(v_tent, v_prev, p_prev, test_3, viscosity_func, rho1, dt, coeff1_bouyancy_func, coeff2_bouyancy_func )
+    F4_form = F2(v_tent, p_answer, p_prev, test_5, dt )
+    F5_form = F3(v_next, v_tent, p_answer, p_prev, test_4, dt )
 
 
-    total_form = F1_form+ F2_form+ F3_form+ F4_form
+    total_form = F1_form+ F2_form+ F3_form+ F4_form + F5_form
 
     return {"total_form":  total_form, "phi_u_v_p": phi_u_v_p, "phi_u_v_p_0": phi_u_v_p_0, "function_space": function_space, "lid_vel_x": lid_vel_x, "lid_vel_y": lid_vel_y, "rel_tol": rel_tol, "abs_tol": abs_tol, "viscosity_func": viscosity_func  }
 
